@@ -1,2 +1,2 @@
-# binar-tugas-ch-gold
-Binar Academy - Tugas Chapter Gold (Text cleansing twitter hatespeech data)
+# binar-tugas-ch-plat
+Binar Academy - Tugas Chapter Platinum (Analisis sentimen untuk twitter hatespeech data)
