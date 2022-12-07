@@ -186,16 +186,16 @@ def clean_text(text):
                      replace_stopwords])
 
 #database function
-def save_to_sqllite(raw, output, advanced_output = ''):
+def save_to_sqllite(raw, output, sentiment = ''):
     try:
         conn = sqlite3.connect('text_cleansing.db')
         cursor = conn.cursor()
-        cursor.execute('CREATE TABLE IF NOT EXISTS text_cleansing (raw varchar(255) NOT NULL, basic_output VARCHAR(255) NOT NULL, advanced_output VARCHAR(255))')
+        cursor.execute('CREATE TABLE IF NOT EXISTS text_cleansing (raw varchar(255) NOT NULL, basic_output VARCHAR(255) NOT NULL, sentiment VARCHAR(255))')
 
-        if(advanced_output == ''):
+        if(sentiment == ''):
             cursor.execute("INSERT INTO text_cleansing (raw, basic_output) VALUES (?, ?)", [raw, output])
         else:
-            cursor.execute("INSERT INTO text_cleansing (raw,basic_output,advanced_output) VALUES (?, ?, ?)", [raw, output, advanced_output])
+            cursor.execute("INSERT INTO text_cleansing (raw,basic_output,sentiment) VALUES (?, ?, ?)", [raw, output, sentiment])
 
         conn.commit()
         cursor.close()
@@ -255,6 +255,22 @@ def predict_lstm(feature):
 
 def get_sentiment_lstm(text):
     return predict_lstm(get_feature(text))
+
+def predict_rnn(feature):
+    prediction = model_rnn.predict(feature)
+    get_sentiment = sentiment[np.argmax(prediction[0])]
+    return get_sentiment
+
+def get_sentiment_rnn(text):
+    return predict_rnn(get_feature(text))
+
+def predict_cnn(feature):
+    prediction = model_cnn.predict(feature)
+    get_sentiment = sentiment[np.argmax(prediction[0])]
+    return get_sentiment
+
+def get_sentiment_cnn(text):
+    return predict_cnn(get_feature(text))
 
 #SWAGGER URL
 #cnn model
@@ -324,17 +340,16 @@ def lstm():
 def home():
     return "Hello World!"
 
-#file cnn
+#file rnn
 @swag_from('docs/file_predict.yml', methods=['POST'])
-@app.route('/file_predict', methods=['POST'])
-def predict_file():
-    """Cleanse Text & Predit model (based on LSTM) """
+@app.route('/file_predict_rnn', methods=['POST'])
+def predict_file_rnn():
+    """Cleanse Text & Predit model (based on RNN) """
      #get file
     file = request.files["file"] 
 
      #cek apakah tipe file sesuai         
     if file and file.content_type  == 'application/vnd.ms-excel':     
-
         #baca dataframe
         df = pd.read_csv(file, encoding='latin-1')
         df.columns = map(str.lower, df.columns)
@@ -361,31 +376,93 @@ def predict_file():
             )
     else:        return jsonify(text_cleansing_file_error())
 
-#text cleansing 
-@swag_from('docs/text_cleansing.yml', methods=['POST'])
-@app.route('/text-cleansing', methods=['POST'])
-def text_cleansing():
-    """Cleanse Text & Save it to sqllite"""
-    #clean text
-    text = request.form.get('text')
-    cleansed_text = clean_text(text)
-     #save to sql
-    db = save_to_sqllite(text, cleansed_text, cleansed_text)
+#file rnn
+@swag_from('docs/file_predict.yml', methods=['POST'])
+@app.route('/file_predict_cnn', methods=['POST'])
+def predict_file_cnn():
+     #get file
+    file = request.files["file"] 
 
-    #generate balikan json
-    json_response = object()
-    if(db == True):
-        json_response = text_cleansing_success(text, cleansed_text)
-    else:
-        json_response = text_cleansing_error()
+     #cek apakah tipe file sesuai         
+    if file and file.content_type  == 'application/vnd.ms-excel':     
 
-    return jsonify(json_response)
+        #baca dataframe
+        df = pd.read_csv(file, encoding='latin-1')
+        df.columns = map(str.lower, df.columns)
 
-#text cleansing advanced
-@swag_from('docs/text_cleansing_file.yml', methods=['POST'])
-@app.route('/text-cleansing-file', methods=['POST'])
-def text_cleansing_file_advanced():
-    """Cleanse Text & Save it to sqllite """
+        #cek apakah kolom sesuai
+        if(len(df.columns) != 13):
+              return jsonify(text_cleansing_file_error_column(len(df.columns)))
+        else:
+            #cleansing text 20 random. karena berat
+            df = df_text_cleansing(df.sample(n=20, random_state=1))
+            df['tweet_clean'] = df['tweet'].apply(clean_text)
+            df['sentiment'] = df['tweet_clean'].apply(get_sentiment_cnn)
+            data_output = df[['tweet', 'tweet_clean', 'sentiment']]
+
+            # save to sql
+            # for i, tweet_clean in enumerate(data_output['tweet_clean']): print(data_output.iloc[[i]]['tweet'], tweet_clean, data_output.iloc[[i]]['sentiment'])
+            for i, tweet_clean in enumerate(data_output['tweet_clean']): save_to_sqllite(data_output[i]['tweet'], tweet_clean, data_output[i]['sentiment'])
+
+            #generate json
+            json_result = data_output.to_json(orient='records', lines=True)
+           
+            json_response = {
+                'status_code': 200,
+                'description': 'Result of Sentiment Analysis using RNN (File Upload)',
+                'data': {
+                    json_result
+                }
+            }
+            return jsonify(json_response)
+
+    else:        return jsonify(text_cleansing_file_error())
+
+#file rnn
+@swag_from('docs/file_predict.yml', methods=['POST'])
+@app.route('/file_predict_rnn', methods=['POST'])
+def predict_file_rnn():
+     #get file
+    file = request.files["file"] 
+
+     #cek apakah tipe file sesuai         
+    if file and file.content_type  == 'application/vnd.ms-excel':     
+
+        #baca dataframe
+        df = pd.read_csv(file, encoding='latin-1')
+        df.columns = map(str.lower, df.columns)
+
+        #cek apakah kolom sesuai
+        if(len(df.columns) != 13):
+              return jsonify(text_cleansing_file_error_column(len(df.columns)))
+        else:
+            #cleansing text 20 random. karena berat
+            df = df_text_cleansing(df.sample(n=20, random_state=1))
+            df['tweet_clean'] = df['tweet'].apply(clean_text)
+            df['sentiment'] = df['tweet_clean'].apply(get_sentiment_rnn)
+            data_output = df[['tweet', 'tweet_clean', 'sentiment']]
+
+            # save to sql
+            for i, tweet_clean in enumerate(data_output['tweet_clean']): save_to_sqllite(data_output[i]['tweet'], tweet_clean, data_output[i]['sentiment'])
+
+            #generate json
+            json_result = data_output.to_json(orient='records', lines=True)
+           
+            json_response = {
+                'status_code': 200,
+                'description': 'Result of Sentiment Analysis using RNN (File Upload)',
+                'data': {
+                    json_result
+                }
+            }
+            return jsonify(json_response)
+
+    else:        return jsonify(text_cleansing_file_error())
+
+#file lstm
+@swag_from('docs/file_predict.yml', methods=['POST'])
+@app.route('/file_predict_lstm', methods=['POST'])
+def predict_file_lstm():
      #get file
     file = request.files["file"] 
 
@@ -407,8 +484,7 @@ def text_cleansing_file_advanced():
             data_output = df[['tweet', 'tweet_clean', 'sentiment']]
 
             # save to sql
-            for i, tweet_clean in enumerate(data_output['tweet_clean']): print(data_output.iloc[[i]]['tweet'], tweet_clean, data_output.iloc[[i]]['sentiment'])
-            # for i, tweet_clean in enumerate(data_output['tweet_clean']): save_to_sqllite(data_output[i]['tweet'], tweet_clean, data_output[i]['tweet_clean_advanced'])
+            for i, tweet_clean in enumerate(data_output['tweet_clean']): save_to_sqllite(data_output[i]['tweet'], tweet_clean, data_output[i]['sentiment'])
 
             #generate json
             json_result = data_output.to_json(orient='records', lines=True)
@@ -423,6 +499,29 @@ def text_cleansing_file_advanced():
             return jsonify(json_response)
 
     else:        return jsonify(text_cleansing_file_error())
+
+#text cleansing 
+@swag_from('docs/file_predict.yml', methods=['POST'])
+@app.route('/file_predict_lstm', methods=['POST'])
+def text_cleansing():
+    """Cleanse Text & Save it to sqllite"""
+    #clean text
+    text = request.form.get('text')
+    cleansed_text = clean_text(text)
+     #save to sql
+    db = save_to_sqllite(text, cleansed_text, '')
+
+    #generate balikan json
+    json_response = object()
+    if(db == True):
+        json_response = text_cleansing_success(text, cleansed_text)
+    else:
+        json_response = text_cleansing_error()
+
+    return jsonify(json_response)
+
+
+
 
 if __name__ == "__main__":
     # Development only: run "python main.py" and open http://localhost:8080
